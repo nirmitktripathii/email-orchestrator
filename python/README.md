@@ -10,7 +10,7 @@ python -m email_orchestrator.setup.test_connections       # LLM + every account
 python -m email_orchestrator.setup.run_tool account_status '{"refresh": true}'
 python -m email_orchestrator.setup.generate_config --install   # register with Claude Desktop
 python -m email_orchestrator                              # what Claude Desktop runs (MCP over stdio)
-pytest                                                    # 53 tests
+pytest                                                    # 73 tests
 ```
 
 Configuration is read from `ENV_FILE`, or else the nearest `.env` above this package (the
