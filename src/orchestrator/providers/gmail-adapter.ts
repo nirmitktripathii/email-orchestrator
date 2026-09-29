@@ -8,6 +8,9 @@
  * Gmail also lists via search, so "listEmails" maps onto the search tool with a query.
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type {
   EmailQueryOptions,
   EmailDraft,
@@ -16,6 +19,27 @@ import type {
 } from '../core/types.js';
 import { normalizeEmail, type RawEmailData } from '../core/email-normalizer.js';
 import { BaseMcpAdapter } from './provider-adapter.js';
+import { ProviderAuthError, ProviderConnectionError } from '../utils/errors.js';
+
+export const REAUTH_HINT =
+  'Re-authorize Gmail: run `npx tsx scripts/reauth-gmail.ts` in the project folder, sign in, ' +
+  'then fully restart Claude Desktop.';
+const AUTH_ERROR =
+  /invalid_grant|invalid_token|unauthorized_client|invalid_client|No refresh token|invalid authentication credentials|\b401\b/i;
+
+/**
+ * The gongrzhe server catches every failure and returns it as ordinary text
+ * (`Error: <message>`) without setting `isError`. Left alone, that text parses as
+ * "no emails", so an expired login looks exactly like an empty inbox. Throw instead.
+ */
+export function raiseIfErrorText(parsed: unknown): unknown {
+  if (typeof parsed !== 'string' || !parsed.startsWith('Error:')) return parsed;
+  const message = parsed.slice('Error:'.length).trim() || 'unknown error';
+  if (AUTH_ERROR.test(message)) {
+    throw new ProviderAuthError('gmail', `Gmail sign-in has expired or was revoked (${message}). ${REAUTH_HINT}`);
+  }
+  throw new ProviderConnectionError('gmail', `Gmail server returned an error: ${message}`);
+}
 
 export class GmailAdapter extends BaseMcpAdapter {
   /**
@@ -36,6 +60,37 @@ export class GmailAdapter extends BaseMcpAdapter {
       getEmail: ['read_email', 'get_message', 'get_email'],
       createDraft: ['draft_email', 'create_draft'],
     };
+  }
+
+  /** credentials.json mtime when the current gongrzhe child started. */
+  private credsMtimeAtConnect = 0;
+
+  protected override async afterConnect(): Promise<void> {
+    this.credsMtimeAtConnect = mtimeMs(this.credentialsPath());
+  }
+
+  private credentialsPath(): string {
+    const env = { ...process.env, ...(this.connection.env ?? {}) };
+    return env['GMAIL_CREDENTIALS_PATH'] || path.join(os.homedir(), '.gmail-mcp', 'credentials.json');
+  }
+
+  protected override async callOperation(
+    operation: ProviderOperation,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    try {
+      return raiseIfErrorText(await super.callOperation(operation, args));
+    } catch (error) {
+      // The gongrzhe child reads credentials.json only at startup. If the user has
+      // re-authorized since this child started, restart it once to load the new token.
+      if (!(error instanceof ProviderAuthError) || mtimeMs(this.credentialsPath()) <= this.credsMtimeAtConnect) {
+        throw error;
+      }
+      this.log.info('Gmail credentials changed since connect; restarting the Gmail server to load them');
+      await this.disconnect();
+      await this.connect();
+      return raiseIfErrorText(await super.callOperation(operation, args));
+    }
   }
 
   override async listEmails(options: EmailQueryOptions = {}): Promise<NormalizedEmail[]> {
@@ -117,6 +172,14 @@ export class GmailAdapter extends BaseMcpAdapter {
     } catch {
       return null;
     }
+  }
+}
+
+function mtimeMs(file: string): number {
+  try {
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return 0;
   }
 }
 

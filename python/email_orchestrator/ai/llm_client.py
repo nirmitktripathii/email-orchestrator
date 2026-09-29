@@ -59,6 +59,7 @@ class LLMClient:
         self.config = config
         self._total_tokens = 0
         self._request_count = 0
+        self._spacer = RequestSpacer(config.requests_per_minute)
         self._gemini = None
         if config.provider == "gemini" and config.api_key:
             from google import genai  # imported lazily so tests never need the SDK
@@ -165,7 +166,8 @@ class LLMClient:
             response_mime_type="application/json" if json_mode else None,
         )
         result = await retry_with_backoff(
-            lambda: self._gemini.aio.models.generate_content(model=self.config.model, contents=contents, config=cfg)
+            lambda: self._gemini.aio.models.generate_content(model=self.config.model, contents=contents, config=cfg),
+            before_attempt=self._spacer.wait,
         )
         try:
             text = result.text or ""
@@ -217,7 +219,7 @@ class LLMClient:
                 raise LLMError(f"{self.config.provider} API error ({r.status_code}): {r.text}")
             return r.json()
 
-        result = await retry_with_backoff(call)
+        result = await retry_with_backoff(call, before_attempt=self._spacer.wait)
         choice = (result.get("choices") or [{}])[0]
         usage = result.get("usage") or {}
         return LLMResponse(
@@ -247,7 +249,9 @@ def default_base_url(provider: str) -> str:
 
 _TRANSIENT_CODE = re.compile(r"\b(429|500|502|503|504)\b")
 _TRANSIENT_WORD = re.compile(r"RESOURCE_EXHAUSTED|UNAVAILABLE|rate.?limit|quota|overloaded|temporarily", re.I)
-_RETRY_DELAY = re.compile(r'"?retryDelay"?\s*[:=]\s*"?(\d+(?:\.\d+)?)s"?', re.I)
+# Accept "retryDelay":"46s", 'retryDelay': '46s' (Python-style dict dumps) and "Please retry in 46.5s".
+_RETRY_DELAY = re.compile(r"""['"]?retryDelay['"]?\s*[:=]\s*['"]?(\d+(?:\.\d+)?)s""", re.I)
+_RETRY_IN = re.compile(r"retry in (\d+(?:\.\d+)?)\s*s", re.I)
 
 
 def classify_transient(error: BaseException) -> tuple[bool, int | None]:
@@ -257,14 +261,20 @@ def classify_transient(error: BaseException) -> tuple[bool, int | None]:
     msg = str(error)
     if not (_TRANSIENT_CODE.search(msg) or _TRANSIENT_WORD.search(msg)):
         return False, None
-    m = _RETRY_DELAY.search(msg)
+    m = _RETRY_DELAY.search(msg) or _RETRY_IN.search(msg)
     return True, (math.ceil(float(m.group(1)) * 1000) if m else None)
 
 
-async def retry_with_backoff(fn: Callable[[], Awaitable[T]], max_retries: int = 5) -> T:
+async def retry_with_backoff(
+    fn: Callable[[], Awaitable[T]],
+    max_retries: int = 5,
+    before_attempt: Callable[[], Awaitable[None]] | None = None,
+) -> T:
     last: BaseException | None = None
     for attempt in range(max_retries + 1):
         try:
+            if before_attempt:
+                await before_attempt()  # e.g. request spacing: retries count against the quota too
             return await fn()
         except Exception as e:
             last = e
@@ -285,6 +295,35 @@ async def retry_with_backoff(fn: Callable[[], Awaitable[T]], max_retries: int = 
             )
             await asyncio.sleep(delay_ms / 1000)
     raise last if last else LLMError("All retry attempts failed")
+
+
+class RequestSpacer:
+    """Spaces request STARTS at least ``60 / per_minute`` seconds apart.
+
+    Free-tier quotas are "N requests per minute"; staying under them is cheaper than
+    hitting 429 and backing off. Each caller reserves the next free slot, then sleeps
+    (no lock held), so concurrent callers queue up in order. ``per_minute <= 0`` disables it.
+    """
+
+    def __init__(
+        self,
+        per_minute: int,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
+        self.interval = 60.0 / per_minute if per_minute > 0 else 0.0
+        self._next_slot = 0.0
+        self._clock = clock
+        self._sleep = sleep
+
+    async def wait(self) -> None:
+        if not self.interval:
+            return
+        now = self._clock()
+        slot = max(now, self._next_slot)
+        self._next_slot = slot + self.interval
+        if slot > now:
+            await self._sleep(slot - now)
 
 
 # ---------------------------------------------------------------- tolerant JSON extraction

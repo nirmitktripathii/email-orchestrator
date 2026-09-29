@@ -9,7 +9,7 @@ The repo ships two interchangeable backends:
 | Backend | Location | Status |
 |---|---|---|
 | TypeScript (original) | [`src/`](src/), [`tests/`](tests/) | Production: this is what `install.sh` / onboarding wire into Claude Desktop |
-| Python (port) | [`python/`](python/) | Feature-parity port. Same 17 tools, same prompts, same safety rules. 73 tests. Verified live against Gmail + Zoho + Yahoo |
+| Python (port) | [`python/`](python/) | Feature-parity port. Same 17 tools, same prompts, same safety rules. 85 tests. Verified live against Gmail + Zoho + Yahoo |
 
 Pick either one. Claude cannot tell them apart, because both speak the same MCP protocol.
 
@@ -183,6 +183,8 @@ an electrician tests the fuse before tearing open the wall.
 | Gmail reported 0 unread | gongrzhe's text replies carry no read/unread flag, so everything defaulted to "read" | Fold `is:unread` into the Gmail query and tag the returned rows as unread |
 | LLM returned empty text | Gemma-4 is a *thinking* model: a small `max_tokens` is spent entirely on hidden reasoning | JSON calls start at a 2048-token floor and double the budget on retry (up to 8192) |
 | `429 RESOURCE_EXHAUSTED` bursts | Too many parallel calls | Backoff honours the server's `retryDelay`; concurrency is capped |
+| 429s kept coming on the free tier, retries ignored Google's wait | The free tier allows 15 requests/min per model; Google's error is a Python-style dump (`'retryDelay': '46s'`) that the delay regex didn't match, so retries fired too early | `LLM_REQUESTS_PER_MINUTE` spaces requests under the quota; the regex accepts either quote style and the prose form "Please retry in 46.5s" |
+| Gmail listed 0 emails | The saved sign-in had expired (`invalid_grant`). gongrzhe returns failures as ordinary text (`Error: …`) without flagging them, so the error parsed as "no emails" | The Gmail adapter turns `Error:` text into a real error with a re-sign-in hint; after a re-sign-in it restarts the Gmail server once to load the new token. A weekly task checks the token (see §6) |
 | Claude showed "server disconnected" at startup | Slow Gmail OAuth blocked the handshake | Serve MCP first, connect to providers in the background |
 | Garbled MCP stream | Something wrote to stdout | Logger writes to stderr only |
 
@@ -233,6 +235,30 @@ The generated entry launches `<venv python> -m email_orchestrator` with `ENV_FIL
 your `.env`. **Fully quit Claude Desktop** (tray icon → Quit) and reopen it. Only one backend
 should be registered under the name `email-orchestrator` at a time.
 
+### Keeping Gmail signed in
+
+Google gives apps whose OAuth consent screen is in **Testing** mode refresh tokens that
+**expire after 7 days**. When that happens, Gmail tools fail with *"Gmail sign-in has expired
+or was revoked (invalid_grant)"*.
+
+- **Fix now:** run `npx tsx scripts/reauth-gmail.ts` in the project folder and sign in. The
+  running orchestrator notices the new `credentials.json` and restarts its Gmail server on the
+  next Gmail call; no Claude Desktop restart is needed.
+- **Weekly safety net:** `scripts/check-gmail-token.ts` asks Google to refresh the token. If
+  it is valid, it logs one line to `~/.gmail-mcp/token-check.log`. If it is dead, it opens the
+  sign-in page, which closes itself after 15 minutes if unused. If Google can't be reached, it
+  logs the error and opens nothing. Register it as a weekly Windows task:
+
+  ```powershell
+  $a = New-ScheduledTaskAction -Execute (Get-Command node).Source -WorkingDirectory "<project folder>" `
+       -Argument '"node_modules\tsx\dist\cli.mjs" "scripts\check-gmail-token.ts"'
+  $t = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 10:00am
+  $s = New-ScheduledTaskSettingsSet -StartWhenAvailable
+  Register-ScheduledTask -TaskName EmailOrchestrator-GmailTokenCheck -Action $a -Trigger $t -Settings $s
+  ```
+- **Permanent fix:** in Google Cloud Console → *OAuth consent screen*, **publish the app to
+  production**. Refresh tokens then stop expiring weekly.
+
 ### Verifying a deployment
 
 In Claude, ask: *"Run account_status."* You should see every account marked connected. Then
@@ -270,14 +296,23 @@ try *"Summarize my inbox"*.
 - **JSON extraction:** the model's text is scanned for the first balanced `{…}`/`[…]`, so
   prose around the JSON doesn't break parsing.
 - **Retries:** up to 5 on 429/5xx/"overloaded", with exponential backoff that honours
-  `retryDelay`.
+  `retryDelay` (either quote style) or "Please retry in Ns".
+- **Request spacing:** `LLM_REQUESTS_PER_MINUTE` (default 0 = off) spaces the *start* of
+  every request, retries included, at least `60 / N` seconds apart. Staying under the quota
+  is cheaper than hitting 429 and waiting out the penalty. Use `14` for the Gemini free tier
+  (15/min).
+- **Model choice:** `gemini-3.5-flash-lite` answers in about 1 s. `gemma-4-31b-it` is a slow
+  "thinking" model that returned 500/503 errors under load in testing.
+- **Free tier vs. Claude's tool timeout:** Claude Desktop gives each tool call about 60 s.
+  Tools that make many LLM calls (`inbox_summary`, `batch_*`) can need minutes at 14
+  requests/min. Enable billing on the Gemini key, or ask for fewer emails.
 - **Caches:** fetched emails live for `CACHE_TTL` (default 300 s). Enrichment lives 4× longer,
   because an email's category doesn't change.
 
 ### Configuration (`.env`)
 
 See [`.env.example`](.env.example). The main keys: `LLM_PROVIDER`, `LLM_MODEL`,
-`LLM_API_KEY`, per-provider `GMAIL_*` / `ZOHO_*` / `YAHOO_*` / `OUTLOOK_*`,
+`LLM_API_KEY`, `LLM_REQUESTS_PER_MINUTE`, per-provider `GMAIL_*` / `ZOHO_*` / `YAHOO_*` / `OUTLOOK_*`,
 `DIGEST_SCHEDULE` (≤ 3 times), `TIMEZONE`, `URGENT_POLL_MINUTES`, `NOTIFICATIONS_*`,
 `LOG_LEVEL`, `CACHE_*`.
 
@@ -300,7 +335,7 @@ behaviour.
 | `tools/*.ts` | `tools/*.py` |
 | `notifications/*` (node-cron, node-notifier) | `notifications/*` (asyncio loop + zoneinfo; optional `plyer` for toasts) |
 | `setup/test-connections.ts`, `config-generator.ts` | `setup/test_connections.py`, `generate_config.py`, plus **new** `run_tool.py` |
-| `tests/**/*.test.ts` (vitest, 68 tests) | `python/tests/*.py` (pytest, 73 tests) |
+| `tests/**/*.test.ts` (vitest, 80 tests) | `python/tests/*.py` (pytest, 85 tests) |
 
 ### Concept mapping (for readers who know one language)
 
@@ -326,8 +361,8 @@ behaviour.
 ## 9. Testing
 
 ```bash
-npm test                          # TypeScript: 68 tests
-cd python && pytest               # Python:     73 tests
+npm test                          # TypeScript: 80 tests
+cd python && pytest               # Python:     85 tests
 ```
 
 Both suites use a **fake LLM** (canned JSON per prompt) and **fake mailboxes**, so they are
@@ -343,11 +378,10 @@ accounts with Gemma-4.
 
 ## 10. Known issues
 
-- **Gmail lists 0 messages** on the current account, in **both** backends (seen 2026-09-29).
-  The connection and tool discovery are healthy, but gongrzhe's `search_emails` returns an
-  empty body even for a blank query. Because the TS backend behaves identically, this is
-  upstream/account behaviour (likely the OAuth token's account or scopes), not a port
-  regression. Next step: re-run Gmail sign-in (`npx tsx scripts/reauth-gmail.ts`) and retest.
+- **Gmail sign-in expires every 7 days** while the Google OAuth app is in Testing mode.
+  Publish it to production to stop this; until then the weekly check (§6) catches it.
+- **Gemini free tier is slow for big tools.** At 15 requests/min, multi-email tools can hit
+  Claude Desktop's ~60 s tool timeout (see *LLM layer*).
 - Provider MCP servers are Node packages, so Node is required even with the Python backend.
 - Desktop notifications in Python need `pip install -e ".[notify]"` (`plyer`). Without it,
   digests are logged instead of toasted.

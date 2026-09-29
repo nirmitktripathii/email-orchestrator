@@ -276,6 +276,8 @@ export interface LLMConfig {
   readonly baseUrl?: string;
   readonly maxTokens: number;
   readonly temperature: number;
+  /** Space LLM requests to stay under a per-minute quota (e.g. 14 for a 15 RPM free tier). 0/undefined = off. */
+  readonly requestsPerMinute?: number;
 }
 
 export interface NotificationConfig {

@@ -51,11 +51,13 @@ export interface CompletionOptions {
 export class LLMClient {
   private readonly config: LLMConfig;
   private readonly geminiClient: GoogleGenAI | null;
+  private readonly spacer: RequestSpacer;
   private totalTokensUsed: number = 0;
   private requestCount: number = 0;
 
   constructor(config: LLMConfig) {
     this.config = config;
+    this.spacer = new RequestSpacer(config.requestsPerMinute ?? 0);
 
     // Initialize Gemini client if using Gemini provider
     if (config.provider === 'gemini' && config.apiKey) {
@@ -289,6 +291,7 @@ export class LLMClient {
     let lastError: Error | undefined;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
+        await this.spacer.wait(); // every attempt, retries included, counts against the quota
         return await fn();
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
@@ -325,7 +328,7 @@ export class LLMClient {
  * embeds a JSON body with code 429 / "RESOURCE_EXHAUSTED" and often a
  * `"retryDelay":"NNs"` hint — none of which is an LLMError, so we match on text.
  */
-function classifyTransient(error: unknown): { retryable: boolean; retryAfterMs?: number } {
+export function classifyTransient(error: unknown): { retryable: boolean; retryAfterMs?: number } {
   if (error instanceof LLMRateLimitError) {
     return error.retryAfterMs !== undefined
       ? { retryable: true, retryAfterMs: error.retryAfterMs }
@@ -336,8 +339,37 @@ function classifyTransient(error: unknown): { retryable: boolean; retryAfterMs?:
     /\b(429|500|502|503|504)\b/.test(msg) ||
     /RESOURCE_EXHAUSTED|UNAVAILABLE|rate.?limit|quota|overloaded|temporarily/i.test(msg);
   if (!transient) return { retryable: false };
-  const m = msg.match(/"?retryDelay"?\s*[:=]\s*"?(\d+(?:\.\d+)?)s"?/i);
+  // Accept `"retryDelay":"46s"`, `'retryDelay': '46s'` (Python-style dict dumps) and
+  // the prose form "Please retry in 46.5s".
+  const m = msg.match(/['"]?retryDelay['"]?\s*[:=]\s*['"]?(\d+(?:\.\d+)?)s/i) ?? msg.match(/retry in (\d+(?:\.\d+)?)\s*s/i);
   return m ? { retryable: true, retryAfterMs: Math.ceil(parseFloat(m[1]!) * 1000) } : { retryable: true };
+}
+
+/**
+ * Spaces request STARTS at least 60/perMinute seconds apart. Free-tier quotas are
+ * "N requests per minute"; staying under them is cheaper than hitting 429 and backing
+ * off. Each caller reserves the next free slot, then sleeps outside any lock, so
+ * concurrent callers queue up in order. perMinute <= 0 disables spacing.
+ */
+export class RequestSpacer {
+  private readonly intervalMs: number;
+  private nextSlot = 0;
+
+  constructor(
+    perMinute: number,
+    private readonly now: () => number = Date.now,
+    private readonly sleep: (ms: number) => Promise<void> = ms => new Promise(r => setTimeout(r, ms)),
+  ) {
+    this.intervalMs = perMinute > 0 ? 60_000 / perMinute : 0;
+  }
+
+  async wait(): Promise<void> {
+    if (!this.intervalMs) return;
+    const now = this.now();
+    const slot = Math.max(now, this.nextSlot);
+    this.nextSlot = slot + this.intervalMs;
+    if (slot > now) await this.sleep(slot - now);
+  }
 }
 
 /**

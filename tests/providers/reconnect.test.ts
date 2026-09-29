@@ -11,6 +11,9 @@
  * transport pair and simulate a drop by closing the server side mid-call.
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -19,7 +22,8 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { BaseMcpAdapter } from '../../src/orchestrator/providers/provider-adapter.js';
 import { ImapAdapter } from '../../src/orchestrator/providers/imap-adapter.js';
-import { GmailAdapter } from '../../src/orchestrator/providers/gmail-adapter.js';
+import { GmailAdapter, raiseIfErrorText } from '../../src/orchestrator/providers/gmail-adapter.js';
+import { ProviderAuthError, ProviderConnectionError } from '../../src/orchestrator/utils/errors.js';
 import type { EmailAccount, ProviderOperation } from '../../src/orchestrator/core/types.js';
 
 /** One tool the fake server exposes: a name + a handler returning MCP text content. */
@@ -227,5 +231,72 @@ describe('GmailAdapter unread count (gongrzhe text carries no read-state)', () =
     const unread = await adapter.listEmails({ unreadOnly: true, maxResults: 100 });
     expect(unread).toHaveLength(2); // was 0 before the fix
     expect(unread.every(e => !e.isRead)).toBe(true);
+  });
+});
+
+describe('GmailAdapter errors disguised as text (gongrzhe never sets isError)', () => {
+  class GmailErrorAdapter extends GmailAdapter {
+    connectCount = 0;
+    constructor(acct: EmailAccount, private readonly reply: string) {
+      super(acct);
+    }
+    protected override createTransport(): Transport {
+      this.connectCount++;
+      const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+      serveTools(serverT, { search_emails: () => this.reply }, () => {});
+      return clientT;
+    }
+  }
+
+  it('an expired login throws a sign-in error instead of listing zero emails', async () => {
+    const adapter = new GmailErrorAdapter(account({ provider: 'gmail' }), 'Error: invalid_grant');
+    await adapter.connect();
+    // was: [] — an expired login looked exactly like an empty inbox
+    await expect(adapter.listEmails()).rejects.toThrow(/invalid_grant.*reauth-gmail/s);
+    await expect(adapter.listEmails()).rejects.toBeInstanceOf(ProviderAuthError);
+    expect(adapter.connectCount).toBe(1); // an auth failure is not a dropped line: no reconnect loop
+  });
+
+  it('other error text throws a connection error', async () => {
+    const adapter = new GmailErrorAdapter(account({ provider: 'gmail' }), 'Error: Quota exceeded for quota metric');
+    await adapter.connect();
+    await expect(adapter.searchEmails('from:someone')).rejects.toBeInstanceOf(ProviderConnectionError);
+  });
+
+  it('passes real results through, even with "Error:" inside a subject', () => {
+    const text = 'ID: 1\nSubject: Error: build failed\nFrom: ci@x.com';
+    expect(raiseIfErrorText(text)).toBe(text);
+    expect(raiseIfErrorText({ messages: [] })).toEqual({ messages: [] });
+  });
+});
+
+describe('GmailAdapter picks up a new sign-in without a restart', () => {
+  class GmailReauthAdapter extends GmailAdapter {
+    connectCount = 0;
+    protected override createTransport(): Transport {
+      this.connectCount++;
+      const reply = this.connectCount === 1 ? 'Error: invalid_grant' : 'ID: 1\nSubject: Hello\nFrom: a@b.com';
+      const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+      serveTools(serverT, { search_emails: () => reply }, () => {});
+      return clientT;
+    }
+  }
+
+  it('restarts the Gmail child once the token file changes', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gmail-creds-'));
+    const creds = path.join(dir, 'credentials.json');
+    fs.writeFileSync(creds, '{}');
+    const adapter = new GmailReauthAdapter(
+      account({ provider: 'gmail', connection: { transport: 'stdio', command: 'node', env: { GMAIL_CREDENTIALS_PATH: creds } } }),
+    );
+    await adapter.connect();
+    await expect(adapter.listEmails()).rejects.toBeInstanceOf(ProviderAuthError); // unchanged file: no restart
+    expect(adapter.connectCount).toBe(1);
+
+    const later = new Date(Date.now() + 60_000);
+    fs.utimesSync(creds, later, later); // the user re-authorized
+    expect(await adapter.listEmails()).toHaveLength(1);
+    expect(adapter.connectCount).toBe(2);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });

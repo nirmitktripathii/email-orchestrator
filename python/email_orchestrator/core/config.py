@@ -262,6 +262,7 @@ def _llm_config() -> LLMConfig:
         base_url=env_optional("LLM_BASE_URL"),
         max_tokens=int(env("LLM_MAX_TOKENS", "4096")),
         temperature=float(env("LLM_TEMPERATURE", "0.3")),
+        requests_per_minute=int(env("LLM_REQUESTS_PER_MINUTE", "0") or 0),
     )
 
 

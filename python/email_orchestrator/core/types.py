@@ -217,6 +217,7 @@ class LLMConfig:
     base_url: str | None
     max_tokens: int
     temperature: float
+    requests_per_minute: int = 0  # space requests under a per-minute quota; 0 = off
 
 
 @dataclass

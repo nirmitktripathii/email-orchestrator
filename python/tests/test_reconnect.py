@@ -14,18 +14,21 @@ mid-call (exactly what a crashed child looks like from the client's side).
 from __future__ import annotations
 
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import Any, Callable
 
 import anyio
+import pytest
 import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.shared.memory import create_client_server_memory_streams
 
 from email_orchestrator.core.types import EmailAccount, McpConnectionConfig
 from email_orchestrator.providers.base import BaseMcpAdapter
-from email_orchestrator.providers.gmail import GmailAdapter
+from email_orchestrator.providers.gmail import GmailAdapter, raise_if_error_text
 from email_orchestrator.providers.imap import ImapAdapter
+from email_orchestrator.utils.errors import ProviderAuthError, ProviderConnectionError
 
 ToolHandler = Callable[[dict[str, Any]], str]
 
@@ -214,4 +217,77 @@ async def test_gmail_keeps_unread_rows():
     unread = await adapter.list_emails({"unreadOnly": True, "maxResults": 100})
     assert len(unread) == 2  # was 0 before the fix
     assert all(not e["isRead"] for e in unread)
+    await adapter.disconnect()
+
+
+# ---------------------------------------------------------------- Gmail errors disguised as text
+
+class GmailErrorAdapter(GmailAdapter):
+    """gongrzhe returns failures as plain text ("Error: ...") with isError unset."""
+
+    def __init__(self, acct: EmailAccount, reply: str) -> None:
+        super().__init__(acct)
+        self.reply = reply
+        self.connect_count = 0
+
+    @asynccontextmanager
+    async def open_transport(self):
+        self.connect_count += 1
+        async with serve_tools(lambda _drop: {"search_emails": lambda _a: self.reply}) as streams:
+            yield streams
+
+
+async def test_gmail_expired_login_raises_instead_of_listing_zero():
+    adapter = GmailErrorAdapter(account(provider="gmail"), "Error: invalid_grant")
+    await adapter.connect()
+    with pytest.raises(ProviderAuthError) as exc:
+        await adapter.list_emails()  # was: [] (an expired login looked like an empty inbox)
+    assert "invalid_grant" in str(exc.value) and "reauth-gmail" in str(exc.value)
+    assert adapter.connect_count == 1  # an auth failure is not a dropped line: no reconnect loop
+    await adapter.disconnect()
+
+
+async def test_gmail_other_error_text_raises_connection_error():
+    adapter = GmailErrorAdapter(account(provider="gmail"), "Error: Quota exceeded for quota metric")
+    await adapter.connect()
+    with pytest.raises(ProviderConnectionError, match="Quota exceeded"):
+        await adapter.search_emails("from:someone")
+    await adapter.disconnect()
+
+
+def test_raise_if_error_text_passes_real_results_through():
+    text = "ID: 1\nSubject: Error: build failed\nFrom: ci@x.com"  # "Error:" mid-text is just a subject
+    assert raise_if_error_text(text) is text
+    assert raise_if_error_text({"messages": []}) == {"messages": []}
+
+
+class GmailReauthAdapter(GmailAdapter):
+    """First child has a dead token; any child started after re-auth answers normally."""
+
+    def __init__(self, acct: EmailAccount) -> None:
+        super().__init__(acct)
+        self.connect_count = 0
+
+    @asynccontextmanager
+    async def open_transport(self):
+        self.connect_count += 1
+        reply = "Error: invalid_grant" if self.connect_count == 1 else "ID: 1\nSubject: Hello\nFrom: a@b.com"
+        async with serve_tools(lambda _drop: {"search_emails": lambda _a: reply}) as streams:
+            yield streams
+
+
+async def test_gmail_picks_up_a_new_sign_in_without_a_restart(tmp_path):
+    creds = tmp_path / "credentials.json"
+    creds.write_text("{}")
+    conn = McpConnectionConfig(transport="stdio", command="node", env={"GMAIL_CREDENTIALS_PATH": str(creds)})
+    adapter = GmailReauthAdapter(account(provider="gmail", connection=conn))
+    await adapter.connect()
+    with pytest.raises(ProviderAuthError):
+        await adapter.list_emails()  # token file unchanged -> no pointless restart
+    assert adapter.connect_count == 1
+
+    stat = creds.stat()
+    os.utime(creds, (stat.st_atime, stat.st_mtime + 60))  # the user re-authorized
+    assert len(await adapter.list_emails()) == 1  # restarted the child and read the new token
+    assert adapter.connect_count == 2
     await adapter.disconnect()

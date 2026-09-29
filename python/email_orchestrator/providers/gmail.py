@@ -14,11 +14,14 @@ flag, so when we asked for ``is:unread`` we tag every returned row as unread.
 from __future__ import annotations
 
 import math
+import os
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 from ..core.normalizer import RawEmailData, normalize_email, parse_date
+from ..utils.errors import ProviderAuthError, ProviderConnectionError
 from .base import BaseMcpAdapter
 
 
@@ -26,6 +29,7 @@ class GmailAdapter(BaseMcpAdapter):
     def __init__(self, account) -> None:
         super().__init__(account)
         self._pending_unread_only = False
+        self._creds_mtime = 0.0  # credentials.json mtime when the current child started
 
     def preferred_tool_names(self) -> dict[str, list[str]]:
         return {
@@ -34,6 +38,26 @@ class GmailAdapter(BaseMcpAdapter):
             "getEmail": ["read_email", "get_message", "get_email"],
             "createDraft": ["draft_email", "create_draft"],
         }
+
+    async def after_connect(self) -> None:
+        self._creds_mtime = _mtime(self._credentials_path())
+
+    def _credentials_path(self) -> Path:
+        env = {**os.environ, **(self.connection.env or {})}
+        return Path(env.get("GMAIL_CREDENTIALS_PATH") or Path.home() / ".gmail-mcp" / "credentials.json")
+
+    async def call_operation(self, operation: str, args: dict[str, Any]) -> Any:
+        try:
+            return raise_if_error_text(await super().call_operation(operation, args))
+        except ProviderAuthError:
+            # The gongrzhe child reads credentials.json only at startup. If the user has
+            # re-authorized since this child started, restart it once to load the new token.
+            if _mtime(self._credentials_path()) <= self._creds_mtime:
+                raise
+            self.log.info("Gmail credentials changed since connect; restarting the Gmail server to load them")
+            await self.disconnect()
+            await self.connect()
+            return raise_if_error_text(await super().call_operation(operation, args))
 
     async def list_emails(self, options=None):
         options = options or {}
@@ -93,6 +117,36 @@ class GmailAdapter(BaseMcpAdapter):
             return normalize_email(raw, self.provider, self.account_id, self.email)
         except Exception:
             return None
+
+
+REAUTH_HINT = (
+    "Re-authorize Gmail: run `npx tsx scripts/reauth-gmail.ts` in the project folder, sign in, "
+    "then fully restart Claude Desktop."
+)
+_AUTH_ERROR = re.compile(
+    r"invalid_grant|invalid_token|unauthorized_client|invalid_client|No refresh token|"
+    r"invalid authentication credentials|\b401\b",
+    re.I,
+)
+
+
+def raise_if_error_text(parsed: Any) -> Any:
+    """The gongrzhe server catches every failure and returns it as ordinary text
+    (``Error: <message>``) without setting ``isError``. Left alone, that text parses as
+    "no emails", so an expired login looks exactly like an empty inbox. Raise instead."""
+    if not isinstance(parsed, str) or not parsed.startswith("Error:"):
+        return parsed
+    message = parsed[len("Error:"):].strip() or "unknown error"
+    if _AUTH_ERROR.search(message):
+        raise ProviderAuthError("gmail", f"Gmail sign-in has expired or was revoked ({message}). {REAUTH_HINT}")
+    raise ProviderConnectionError("gmail", f"Gmail server returned an error: {message}")
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def _days_since(iso: str) -> int | None:

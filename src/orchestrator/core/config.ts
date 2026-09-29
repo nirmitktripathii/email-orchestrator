@@ -335,6 +335,7 @@ function parseLLMConfig(): LLMConfig {
     baseUrl: envOptional('LLM_BASE_URL'),
     maxTokens: parseInt(env('LLM_MAX_TOKENS', '4096'), 10),
     temperature: parseFloat(env('LLM_TEMPERATURE', '0.3')),
+    requestsPerMinute: parseInt(env('LLM_REQUESTS_PER_MINUTE', '0'), 10) || 0,
   };
 }
 
