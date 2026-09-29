@@ -1,0 +1,48 @@
+# ---- secrets: NEVER commit -------------------------------------------------
+.env
+.env.*
+!.env.example
+tokens/
+*.token.json
+credentials.json
+client_secret*.json
+config/generated/
+*.bak-*
+
+# ---- personal / non-project material ---------------------------------------
+whatsapp/
+transcriptions.*
+*.mp4
+e78bcd55-*/
+.claude/settings.local.json
+
+# ---- build output & dependencies -------------------------------------------
+node_modules/
+dist/
+coverage/
+.turbo/
+*.log
+.DS_Store
+
+# ---- Python ----------------------------------------------------------------
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+
+# ---- tooling ---------------------------------------------------------------
+graphify-out/
+
+# ---- one-off debug scripts that hardcode a live Zoho key or real mailbox data
+scripts/test-api-token.ts
+scripts/test-api-token2.ts
+scripts/test-routes.ts
+scripts/test-uris.ts
+scripts/inspect-http.ts
+scripts/debug-gmail.ts
+scripts/enrich-target-email.ts
+scripts/find-target-email.ts
+scripts/search-email.ts
+scripts/test-candidate-tools.ts

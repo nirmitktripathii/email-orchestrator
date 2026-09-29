@@ -1,0 +1,38 @@
+{
+  "//": "Claude Desktop MCP config template for the Email AI Agent. Merge the",
+  "//1": "email-orchestrator entry into your real claude_desktop_config.json, or run",
+  "//2": "'npm run generate-config' to produce a filled-in version automatically.",
+  "//3": "Config file location — Windows: %APPDATA%\\Claude\\claude_desktop_config.json",
+  "//4": "macOS: ~/Library/Application Support/Claude/claude_desktop_config.json",
+  "//5": "Linux: ~/.config/Claude/claude_desktop_config.json",
+  "mcpServers": {
+    "email-orchestrator": {
+      "command": "node",
+      "args": ["ABSOLUTE_PATH_TO_PROJECT/dist/index.js"],
+      "env": {
+        "LLM_PROVIDER": "gemini",
+        "LLM_MODEL": "gemma-3-27b-it",
+        "LLM_API_KEY": "YOUR_GEMINI_API_KEY",
+
+        "GMAIL_EMAIL": "you@gmail.com",
+        "GMAIL_DISPLAY_NAME": "My Gmail",
+
+        "ZOHO_EMAIL": "you@yourdomain.com",
+        "ZOHO_DISPLAY_NAME": "Work Zoho",
+        "ZOHO_REGION": "in",
+        "ZOHO_MCP_URL": "https://mcp.zoho.in/...",
+        "ZOHO_MCP_TRANSPORT": "sse",
+        "ZOHO_MCP_AUTH_TOKEN": "OPTIONAL_TOKEN",
+
+        "YAHOO_EMAIL": "you@yahoo.com",
+        "YAHOO_APP_PASSWORD": "your-app-password",
+
+        "DIGEST_SCHEDULE": "09:00,14:00,19:00",
+        "TIMEZONE": "Asia/Kolkata",
+        "NOTIFICATIONS_ENABLED": "true",
+        "URGENT_POLL_MINUTES": "0",
+        "LOG_LEVEL": "info"
+      }
+    }
+  }
+}

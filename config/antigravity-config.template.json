@@ -1,0 +1,22 @@
+{
+  "//": "Antigravity IDE MCP config template for the Email AI Agent. Uses the same",
+  "//1": "mcpServers shape as Claude Desktop. Add this entry to Antigravity's MCP",
+  "//2": "settings, or run 'npm run generate-config' to produce a filled-in version.",
+  "mcpServers": {
+    "email-orchestrator": {
+      "command": "node",
+      "args": ["ABSOLUTE_PATH_TO_PROJECT/dist/index.js"],
+      "env": {
+        "LLM_PROVIDER": "gemini",
+        "LLM_MODEL": "gemma-3-27b-it",
+        "LLM_API_KEY": "YOUR_GEMINI_API_KEY",
+        "ZOHO_MCP_URL": "https://mcp.zoho.in/...",
+        "ZOHO_REGION": "in",
+        "YAHOO_EMAIL": "you@yahoo.com",
+        "YAHOO_APP_PASSWORD": "your-app-password",
+        "DIGEST_SCHEDULE": "09:00,14:00,19:00",
+        "TIMEZONE": "Asia/Kolkata"
+      }
+    }
+  }
+}

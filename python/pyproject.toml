@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "email-orchestrator"
+version = "1.0.0"
+description = "MCP hub that unifies Gmail, Zoho, Yahoo and Outlook behind 17 AI email tools (Python port)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=1.20,<2",          # 2.x changed the client/server API; pinned until ported
+  "google-genai>=1.0",
+  "httpx>=0.27",
+  "python-dotenv>=1.0",
+  "anyio>=4.5",
+  "tzdata; sys_platform == 'win32'",  # zoneinfo needs it on Windows
+]
+
+[project.optional-dependencies]
+notify = ["plyer>=2.1"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+email-orchestrator = "email_orchestrator.__main__:run"
+
+[tool.setuptools.packages.find]
+include = ["email_orchestrator*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

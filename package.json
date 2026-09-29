@@ -1,0 +1,50 @@
+{
+  "name": "email-ai-agent",
+  "version": "1.0.0",
+  "description": "Multi-account Email AI Agent with MCP orchestration — consolidates Gmail, Zoho, Yahoo with AI-powered summarization, categorization, and action recommendations",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "email-orchestrator": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx watch src/orchestrator/index.ts",
+    "start": "node dist/index.js",
+    "setup": "tsx src/setup/setup-wizard.ts",
+    "generate-config": "tsx src/setup/config-generator.ts",
+    "test-connections": "tsx src/setup/test-connections.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ai": "vitest run --dir tests/ai",
+    "test:providers": "vitest run --dir tests/providers",
+    "test:e2e": "vitest run --dir tests/e2e",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@gongrzhe/server-gmail-autoauth-mcp": "^1.1.11",
+    "@google/genai": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.4.0",
+    "imap-mcp-server": "^2.0.0",
+    "node-cron": "^3.0.3",
+    "node-notifier": "^10.0.1",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/node-notifier": "^8.0.5",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
