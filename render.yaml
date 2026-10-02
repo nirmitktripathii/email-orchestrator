@@ -25,7 +25,7 @@ services:
       # Allow-list of tools the hosted server offers. send_email may be added here only when
       # EMAIL_SEND_ENABLED=true; the platform in front must then fix the recipient (see README).
       - key: EMAIL_HTTP_TOOLS
-        value: account_status,inbox_summary,prioritize_inbox,search_all,extract_tasks,explain_email,detect_urgency,suggest_actions,smart_reply
+        value: account_status,inbox_summary,prioritize_inbox,search_all,extract_tasks,explain_email,detect_urgency,suggest_actions
       # Bearer token callers must send. 32+ characters. Use the same value as the platform's
       # server entry for this service.
       - key: MCP_HTTP_TOKEN
