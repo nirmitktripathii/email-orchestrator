@@ -7,7 +7,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { allTools, toolsByName, type ToolContext } from './tools/index.js';
+import { allTools, type ToolContext } from './tools/index.js';
 import { getErrorMessage } from './utils/errors.js';
 import { logger } from './utils/logger.js';
 
@@ -23,11 +23,22 @@ function asStructured(data: unknown): Record<string, unknown> | undefined {
   return { value: data };
 }
 
-export function createServer(ctx: ToolContext): Server {
+export interface ServerOptions {
+  /**
+   * Tools this server may list and run. Omitted means all of them (the local stdio default).
+   * A hosted server passes an explicit list, and a tool outside it is neither listed nor callable,
+   * so a model cannot reach a tool the operator did not switch on.
+   */
+  readonly allowedTools?: ReadonlySet<string>;
+}
+
+export function createServer(ctx: ToolContext, options: ServerOptions = {}): Server {
   const server = new Server(SERVER_INFO, { capabilities: { tools: {} } });
+  const offered = allTools.filter(t => !options.allowedTools || options.allowedTools.has(t.name));
+  const offeredByName = new Map(offered.map(t => [t.name, t]));
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: allTools.map(t => ({
+    tools: offered.map(t => ({
       name: t.name,
       description: t.description,
       inputSchema: t.inputSchema,
@@ -36,7 +47,7 @@ export function createServer(ctx: ToolContext): Server {
 
   server.setRequestHandler(CallToolRequestSchema, async request => {
     const { name, arguments: rawArgs } = request.params;
-    const tool = toolsByName.get(name);
+    const tool = offeredByName.get(name);
     if (!tool) {
       srvLogger.warn('Unknown tool requested', { name });
       return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
@@ -61,6 +72,6 @@ export function createServer(ctx: ToolContext): Server {
     }
   });
 
-  srvLogger.info(`MCP server created with ${allTools.length} tools`);
+  srvLogger.info(`MCP server created with ${offered.length} of ${allTools.length} tools`);
   return server;
 }
