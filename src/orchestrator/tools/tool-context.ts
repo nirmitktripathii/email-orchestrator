@@ -11,6 +11,8 @@ import type { EmailEnrichmentService } from '../ai/enrichment.js';
 import type { EmailSummarizer } from '../ai/summarizer.js';
 import type { EmailCategorizer } from '../ai/categorizer.js';
 import type { ActionRecommender } from '../ai/action-recommender.js';
+import type { Mailer } from '../send/mailer.js';
+import type { SendPolicy } from '../send/policy.js';
 import { ValidationError } from '../utils/errors.js';
 
 /** Runtime scheduler surface the schedule tools drive (implemented by the scheduler). */
@@ -30,6 +32,8 @@ export interface ToolContext {
   readonly actionRecommender: ActionRecommender;
   /** Set after the scheduler is constructed (index.ts). */
   scheduler?: RuntimeScheduler;
+  /** Present only when sending was switched on. Without it there is no send tool at all. */
+  readonly send?: { readonly mailer: Mailer; readonly policy: SendPolicy };
 }
 
 /** A tool's output: human-readable text (shown in chat) + optional structured data. */

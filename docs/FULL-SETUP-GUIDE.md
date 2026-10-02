@@ -7,8 +7,9 @@ walls twice.
 
 > **What you'll end up with:** one `email-orchestrator` MCP server in Claude Desktop that
 > consolidates all your inboxes, with AI summaries, 8-tier categorization, urgency scoring,
-> action suggestions, smart-reply drafts, and scheduled digests. The agent **never sends
-> mail** — it only ever drafts.
+> action suggestions, smart-reply drafts, and scheduled digests. The agent does **not send
+> mail** by default — it only drafts. (An optional `send_email` tool exists but is off unless
+> you set `EMAIL_SEND_ENABLED=true`; see the README.)
 
 ---
 

@@ -346,6 +346,18 @@ function parseLLMConfig(): LLMConfig {
 function parseEmailAccounts(): EmailAccount[] {
   const accounts: EmailAccount[] = [];
 
+  // The demo mailbox: made-up mail kept in memory, for a hosted server strangers can try.
+  if (env('DEMO_MAILBOX', 'false') === 'true') {
+    accounts.push({
+      id: 'demo',
+      provider: 'demo',
+      email: 'you@mission-control.example',
+      displayName: 'Demo mailbox',
+      isActive: true,
+      mcpServerName: 'demo',
+    });
+  }
+
   // Parse Gmail accounts
   if (envOptional('GMAIL_CLIENT_ID') || envOptional('GMAIL_EMAIL')) {
     accounts.push({

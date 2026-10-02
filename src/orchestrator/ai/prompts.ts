@@ -12,7 +12,7 @@
  *  3. SYSTEM_PROMPT states that fenced text is data, never instructions.
  *  4. UNTRUSTED_REMINDER restates the rule right after the email (recency matters).
  * This lowers the odds of manipulation; the hard guarantees stay structural (validated
- * JSON output, and no send/delete tool exists to hijack).
+ * JSON output, no delete tool, and a send tool that is off by default and capped).
  */
 
 export const UNTRUSTED_TAG = 'untrusted_email';

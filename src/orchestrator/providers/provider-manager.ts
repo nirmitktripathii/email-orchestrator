@@ -19,6 +19,7 @@ import { GmailAdapter } from './gmail-adapter.js';
 import { ZohoAdapter } from './zoho-adapter.js';
 import { ImapAdapter } from './imap-adapter.js';
 import { GraphAdapter } from './graph-adapter.js';
+import { DemoAdapter } from './demo-adapter.js';
 import { logger } from '../utils/logger.js';
 import { EmailNotFoundError, getErrorMessage } from '../utils/errors.js';
 
@@ -53,7 +54,8 @@ export class ProviderManager {
         mgrLogger.info(`Skipping inactive account ${account.id}`);
         continue;
       }
-      if (!account.connection) {
+      // The demo mailbox lives in memory, so it is the one provider with no MCP connection.
+      if (!account.connection && account.provider !== 'demo') {
         mgrLogger.warn(`Account ${account.id} has no MCP connection — skipping (configure it to enable)`);
         continue;
       }
@@ -77,6 +79,8 @@ export class ProviderManager {
 
   private static createAdapter(account: EmailAccount): ProviderAdapter {
     switch (account.provider) {
+      case 'demo':
+        return new DemoAdapter(account);
       case 'gmail':
         return new GmailAdapter(account);
       case 'zoho':

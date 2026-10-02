@@ -14,17 +14,11 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { loadConfig, validateConfig } from './core/config.js';
-import { LLMClient } from './ai/llm-client.js';
-import { EmailSummarizer } from './ai/summarizer.js';
-import { EmailCategorizer } from './ai/categorizer.js';
-import { ActionRecommender } from './ai/action-recommender.js';
-import { EmailEnrichmentService } from './ai/enrichment.js';
-import { ProviderManager } from './providers/provider-manager.js';
 import { DesktopNotifier } from './notifications/notifier.js';
 import { DigestScheduler } from './notifications/scheduler.js';
 import { produceDigestNotification, produceUrgentHighlights } from './notifications/digest-source.js';
 import { createServer } from './server.js';
-import type { ToolContext } from './tools/index.js';
+import { buildToolContext } from './bootstrap.js';
 import { logger } from './utils/logger.js';
 import { getErrorMessage } from './utils/errors.js';
 
@@ -38,21 +32,9 @@ async function main(): Promise<void> {
     bootLogger.warn(`Config: ${issue}`);
   }
 
-  // --- AI engines ---
-  const llm = new LLMClient(config.llm);
-  const summarizer = new EmailSummarizer(llm);
-  const categorizer = new EmailCategorizer(llm);
-  const actionRecommender = new ActionRecommender(llm);
-  const enrichment = new EmailEnrichmentService(summarizer, categorizer, actionRecommender, {
-    cacheTtlSeconds: config.cache.ttlSeconds,
-    maxCacheEntries: config.cache.maxEntries,
-  });
-
-  // --- Providers (constructed now; connected AFTER the server is serving) ---
-  const providers = ProviderManager.fromConfig(config);
-
-  // --- Tool context ---
-  const ctx: ToolContext = { config, providers, enrichment, summarizer, categorizer, actionRecommender };
+  // --- Engines, providers (constructed now; connected AFTER the server is serving), tool context ---
+  const ctx = buildToolContext(config);
+  const { providers } = ctx;
 
   // --- Notifications + scheduler (started once providers are connected) ---
   const notifier = new DesktopNotifier(config.notifications);
