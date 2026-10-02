@@ -1,0 +1,47 @@
+# Render blueprint for the hosted (HTTP) Email Orchestrator.
+#
+# This runs dist/http.js, not the stdio server. It serves a DEMO mailbox of made-up email, never a
+# real inbox. Values marked `sync: false` are set once in the Render dashboard (they are secrets or
+# differ per deployment); they are never written to this file.
+#
+# Notes from deploying the other Mission Control services on Render:
+#   - Blueprint values apply when the blueprint is synced; changing one later in the dashboard is
+#     what takes effect afterwards, and a deploy is needed for it to load.
+#   - A free instance sleeps and takes 30 to 60 seconds to wake, so the first call can time out.
+services:
+  - type: web
+    name: email-orchestrator-mcp
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node dist/http.js
+    healthCheckPath: /healthz
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DEMO_MAILBOX
+        value: "true"
+      # Allow-list of tools the hosted server offers. send_email may be added here only when
+      # EMAIL_SEND_ENABLED=true; the platform in front must then fix the recipient (see README).
+      - key: EMAIL_HTTP_TOOLS
+        value: account_status,inbox_summary,prioritize_inbox,search_all,extract_tasks,explain_email,detect_urgency,suggest_actions,smart_reply
+      # Bearer token callers must send. 32+ characters. Use the same value as the platform's
+      # server entry for this service.
+      - key: MCP_HTTP_TOKEN
+        sync: false
+      # Key for the LLM tools (summaries, categories). Spends this key's quota.
+      - key: LLM_API_KEY
+        sync: false
+      # Sending is off unless this is "true". When it is, all four SMTP values are required or the
+      # server refuses to start.
+      - key: EMAIL_SEND_ENABLED
+        value: "false"
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_SEND_FROM
+        sync: false
