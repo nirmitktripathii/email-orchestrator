@@ -6,6 +6,7 @@
  *
  * Differences from index.ts, all deliberate:
  *   - Needs `MCP_HTTP_TOKEN` and an explicit `EMAIL_HTTP_TOOLS` list, or it refuses to start.
+ *   - Holds only the demo mailbox unless real mailboxes are explicitly allowed.
  *   - Offers only the listed tools. The schedule tools and desktop toasts are not started: a
  *     server has no desktop, and no caller should be able to change a schedule.
  *   - Binds 0.0.0.0 on `PORT` (what a host such as Render expects).
@@ -16,8 +17,8 @@ import { loadConfig, validateConfig } from './core/config.js';
 import { buildToolContext } from './bootstrap.js';
 import { createServer } from './server.js';
 import { createHttpHandler } from './http-app.js';
-import { loadHostedConfig } from './hosted-config.js';
-import { allTools } from './tools/index.js';
+import { assertHostedAccounts, loadHostedConfig } from './hosted-config.js';
+import { toolCatalog } from './tools/index.js';
 import { logger } from './utils/logger.js';
 import { getErrorMessage } from './utils/errors.js';
 
@@ -29,9 +30,9 @@ async function main(): Promise<void> {
   for (const issue of validateConfig(config)) {
     bootLogger.warn(`Config: ${issue}`);
   }
-  const hosted = loadHostedConfig(process.env, allTools.map(t => t.name));
-
+  assertHostedAccounts(config.accounts, process.env);
   const ctx = buildToolContext(config);
+  const hosted = loadHostedConfig(process.env, toolCatalog(ctx).map(t => t.name));
   const handler = createHttpHandler({
     token: hosted.token,
     buildServer: () => createServer(ctx, { allowedTools: hosted.tools }),

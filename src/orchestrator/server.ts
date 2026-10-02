@@ -7,7 +7,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { allTools, type ToolContext } from './tools/index.js';
+import { toolCatalog, type ToolContext } from './tools/index.js';
 import { getErrorMessage } from './utils/errors.js';
 import { logger } from './utils/logger.js';
 
@@ -34,7 +34,8 @@ export interface ServerOptions {
 
 export function createServer(ctx: ToolContext, options: ServerOptions = {}): Server {
   const server = new Server(SERVER_INFO, { capabilities: { tools: {} } });
-  const offered = allTools.filter(t => !options.allowedTools || options.allowedTools.has(t.name));
+  const catalog = toolCatalog(ctx);
+  const offered = catalog.filter(t => !options.allowedTools || options.allowedTools.has(t.name));
   const offeredByName = new Map(offered.map(t => [t.name, t]));
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -72,6 +73,6 @@ export function createServer(ctx: ToolContext, options: ServerOptions = {}): Ser
     }
   });
 
-  srvLogger.info(`MCP server created with ${offered.length} of ${allTools.length} tools`);
+  srvLogger.info(`MCP server created with ${offered.length} of ${catalog.length} tools`);
   return server;
 }

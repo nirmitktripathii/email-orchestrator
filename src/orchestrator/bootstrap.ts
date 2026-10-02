@@ -12,6 +12,7 @@ import { ActionRecommender } from './ai/action-recommender.js';
 import { EmailEnrichmentService } from './ai/enrichment.js';
 import { ProviderManager } from './providers/provider-manager.js';
 import type { ToolContext } from './tools/index.js';
+import { loadSend } from './send/config.js';
 
 /** Providers are constructed here but not connected; the caller connects them once it is serving. */
 export function buildToolContext(config: AppConfig): ToolContext {
@@ -24,5 +25,7 @@ export function buildToolContext(config: AppConfig): ToolContext {
     maxCacheEntries: config.cache.maxEntries,
   });
   const providers = ProviderManager.fromConfig(config);
-  return { config, providers, enrichment, summarizer, categorizer, actionRecommender };
+  // Off unless EMAIL_SEND_ENABLED=true. Without it there is no send tool to offer.
+  const send = loadSend(process.env);
+  return { config, providers, enrichment, summarizer, categorizer, actionRecommender, ...(send ? { send } : {}) };
 }

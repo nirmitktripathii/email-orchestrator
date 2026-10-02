@@ -29,6 +29,22 @@ export function parseToolAllowList(raw: string | undefined, known: readonly stri
   return new Set(names);
 }
 
+/**
+ * A hosted server is reachable from outside, so by default it may only hold the demo mailbox.
+ * Real mailboxes need `EMAIL_HTTP_ALLOW_REAL_ACCOUNTS=true`, so a stray `.env` full of real
+ * credentials cannot be exposed by accident.
+ */
+export function assertHostedAccounts(accounts: readonly { id: string; provider: string }[], env: NodeJS.ProcessEnv): void {
+  if (env['EMAIL_HTTP_ALLOW_REAL_ACCOUNTS'] === 'true') return;
+  const real = accounts.filter(a => a.provider !== 'demo');
+  if (real.length > 0) {
+    throw new Error(
+      `The hosted server will not start with real mailboxes configured (${real.map(a => a.id).join(', ')}). ` +
+        'Remove them and set DEMO_MAILBOX=true, or set EMAIL_HTTP_ALLOW_REAL_ACCOUNTS=true if you mean it.',
+    );
+  }
+}
+
 export function loadHostedConfig(env: NodeJS.ProcessEnv, knownTools: readonly string[]): HostedConfig {
   const token = (env['MCP_HTTP_TOKEN'] ?? '').trim();
   if (token.length < MIN_TOKEN_LENGTH) {

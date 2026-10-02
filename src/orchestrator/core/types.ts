@@ -11,7 +11,8 @@ import { z } from 'zod';
 // ============================
 
 /** Supported email providers */
-export type EmailProvider = 'gmail' | 'zoho' | 'yahoo' | 'outlook' | 'imap';
+/** `demo` is the in-memory mailbox of made-up mail used for hosting a safe public demo. */
+export type EmailProvider = 'gmail' | 'zoho' | 'yahoo' | 'outlook' | 'imap' | 'demo';
 
 /** Transport used to reach a downstream provider MCP server */
 export type McpTransportType = 'stdio' | 'sse' | 'http';
