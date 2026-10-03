@@ -11,7 +11,7 @@ import { allTools, toolCatalog, type ToolContext } from '../../src/orchestrator/
 import { sendEmailTool } from '../../src/orchestrator/tools/send-tools.js';
 import { createServer } from '../../src/orchestrator/server.js';
 import { FOOTER, MAX_BODY, MAX_SUBJECT, SendPolicy } from '../../src/orchestrator/send/policy.js';
-import { SmtpMailer, type Mailer, type OutgoingEmail } from '../../src/orchestrator/send/mailer.js';
+import { SmtpMailer, tlsOptions, type Mailer, type OutgoingEmail } from '../../src/orchestrator/send/mailer.js';
 import { loadSend } from '../../src/orchestrator/send/config.js';
 import { FakeLLM, asLLM, defaultAiHandler } from '../helpers.js';
 
@@ -196,5 +196,11 @@ describe('SmtpMailer', () => {
     const res = await mailer.send({ to: 'me@example.com', subject: 's', text: 't' });
     expect(res.id).toBe('<abc@h>');
     expect(calls).toEqual([{ from: 'Mission Control <u@example.com>', to: 'me@example.com', subject: 's', text: 't' }]);
+  });
+
+  it('starts encrypted only on 465 and 2465, and requires STARTTLS everywhere else', () => {
+    // 2525 and 2587 are the alternate ports a Render free instance can reach.
+    for (const port of [465, 2465]) expect(tlsOptions(port)).toEqual({ secure: true, requireTLS: false });
+    for (const port of [587, 2525, 2587]) expect(tlsOptions(port)).toEqual({ secure: false, requireTLS: true });
   });
 });

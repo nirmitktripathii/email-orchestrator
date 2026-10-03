@@ -33,11 +33,16 @@ services:
       # Key for the LLM tools (summaries, categories). Spends this key's quota.
       - key: LLM_API_KEY
         sync: false
-      # Sending is off unless this is "true". When it is, all four SMTP values are required or the
-      # server refuses to start.
+      # Sending is off unless this is "true". When it is, SMTP_HOST, SMTP_USER and SMTP_PASSWORD are
+      # required or the server refuses to start.
       - key: EMAIL_SEND_ENABLED
         value: "false"
       - key: SMTP_HOST
+        sync: false
+      # Render's free tier blocks outbound ports 25, 465 and 587, and SMTP_PORT defaults to 587. On a
+      # free instance set the provider's alternate port: 2525 (Brevo, Mailjet) or 2587 (Resend,
+      # Amazon SES). Gmail has none, so it only works on a paid instance.
+      - key: SMTP_PORT
         sync: false
       - key: SMTP_USER
         sync: false

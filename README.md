@@ -289,6 +289,9 @@ your quota (the free Gemini tier is about 15 requests a minute).
 
 Set `EMAIL_SEND_ENABLED=true` plus `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` (and optionally
 `SMTP_PORT`, default 587 with required STARTTLS, and `EMAIL_SEND_FROM`) to register `send_email`.
+Ports 465 and 2465 use implicit TLS; every other port must upgrade with STARTTLS. Render's free
+tier blocks outbound ports 25, 465 and 587, so a free instance needs the provider's alternate
+port, such as 2525 (Brevo, Mailjet) or 2587 (Resend, Amazon SES); Gmail has none.
 A half-configured setup stops startup instead of leaving a tool that fails later. The model
 writes the subject and body, which may be built from mail a stranger wrote, so the tool keeps the
 blast radius small: one recipient, plain text, 150-character subject, 4000-character body, a fixed
